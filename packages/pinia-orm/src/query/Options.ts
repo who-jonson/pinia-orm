@@ -1,4 +1,5 @@
 import type { Model, WithKeys } from '../model/Model'
+import type { SortComparator } from '../support/Utils'
 import type { Query } from './Query'
 
 export interface Where<T = Model> {
@@ -7,9 +8,10 @@ export interface Where<T = Model> {
   boolean: 'and' | 'or'
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
 export type NonMethodKeys<T> = { [P in keyof T]: T[P] extends Function ? never : P }[keyof T]
 export type GetElementType<T extends unknown[] | unknown> = T extends (infer U)[] ? U : T
-export type UltimateKeys<M> = { [T in keyof M]: M[T] extends Model | Model[] | null ? GetElementType<NonNullable<M[T]>> : never }
+export type UltimateKeys<M> = { [T in keyof M]-?: NonNullable<M[T]> extends Model | Model[] ? GetElementType<NonNullable<M[T]>> : never }
 export type WherePrimaryClosure<T> = (model: T) => boolean
 
 export type WhereSecondaryClosure<T> = (value: T) => boolean
@@ -22,6 +24,7 @@ export interface WhereGroup {
 export interface Order {
   field: OrderBy
   direction: OrderDirection
+  flags?: SortComparator
 }
 
 export interface Group {

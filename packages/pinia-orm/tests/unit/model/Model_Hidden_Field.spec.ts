@@ -14,8 +14,8 @@ describe('unit/model/Model_Hidden_Field', () => {
 
       static hidden = ['username']
 
-      @Str('') declare name: string
-      @Str('') declare username: string
+      @Str('') name!: string
+      @Str('') username!: string
     }
     const user = new User({ name: 'Test', username: 'John' }, { operation: 'get' })
 
@@ -27,13 +27,35 @@ describe('unit/model/Model_Hidden_Field', () => {
     class User extends Model {
       static entity = 'users'
 
-      @Str('') declare name: string
-      @Hidden() @Str('') declare username: string
+      @Str('') name!: string
+      @Hidden() @Str('') username!: string
     }
     const user = new User({ name: 'Test', username: 'John' }, { operation: 'get' })
 
     expect(user.name).toBe('Test')
     expect(user.username).toBe(undefined)
+  })
+
+  it('should only hide the field on the entity using the decorator', () => {
+    class User extends Model {
+      static entity = 'users'
+
+      @Str('') name!: string
+      @Hidden() @Str('') username!: string
+    }
+
+    class Account extends Model {
+      static entity = 'accounts'
+
+      @Str('') name!: string
+      @Str('') username!: string
+    }
+
+    const user = new User({ name: 'Test', username: 'John' }, { operation: 'get' })
+    const account = new Account({ name: 'Test', username: 'John' }, { operation: 'get' })
+
+    expect(user.username).toBe(undefined)
+    expect(account.username).toBe('John')
   })
 
   it('should hide the field with "visible"', () => {
@@ -42,8 +64,8 @@ describe('unit/model/Model_Hidden_Field', () => {
 
       static visible = ['username']
 
-      @Str('') declare name: string
-      @Str('') declare username: string
+      @Str('') name!: string
+      @Str('') username!: string
     }
     const user = new User({ name: 'Test', username: 'John' }, { operation: 'get' })
 
@@ -57,9 +79,9 @@ describe('unit/model/Model_Hidden_Field', () => {
 
       static hidden = ['username']
 
-      @Attr(0) declare id: string
-      @Str('') declare name: string
-      @Str('') declare username: string
+      @Attr(0) id!: string
+      @Str('') name!: string
+      @Str('') username!: string
     }
 
     const userRepo = useRepo(User)

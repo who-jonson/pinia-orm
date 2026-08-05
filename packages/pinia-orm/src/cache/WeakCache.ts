@@ -1,8 +1,28 @@
+interface ValueRef<V extends object> {
+  deref(): V | undefined
+}
+
+/**
+ * Fallback for environments without WeakRef support (e.g. Cloudflare
+ * Workers). Values are held strongly instead of crashing.
+ */
+class StrongRef<V extends object> implements ValueRef<V> {
+  #value: V
+
+  constructor (value: V) {
+    this.#value = value
+  }
+
+  deref (): V {
+    return this.#value
+  }
+}
+
 export class WeakCache<K, V extends object> implements Map<K, V> {
   // @ts-expect-error dont know
   readonly [Symbol.toStringTag]: string
 
-  #map = new Map<K, WeakRef<V>>()
+  #map = new Map<K, ValueRef<V>>()
 
   has (key: K) {
     return !!(this.#map.has(key) && this.#map.get(key)?.deref())
@@ -25,7 +45,7 @@ export class WeakCache<K, V extends object> implements Map<K, V> {
   }
 
   set (key: K, value: V) {
-    this.#map.set(key, new WeakRef<V>(value))
+    this.#map.set(key, typeof WeakRef === 'undefined' ? new StrongRef<V>(value) : new WeakRef<V>(value))
     return this
   }
 
@@ -43,10 +63,10 @@ export class WeakCache<K, V extends object> implements Map<K, V> {
   }
 
   forEach (cb: (value: V, key: K, map: Map<K, V>) => void): void {
-    for (const [key, value] of this) { cb(value, key, this) }
+    for (const [key, value] of this) { cb(value, key, this as unknown as Map<K, V>) }
   }
 
-  * [Symbol.iterator] (): IterableIterator<[K, V]> {
+  * [Symbol.iterator] (): MapIterator<[K, V]> {
     for (const [key, weakRef] of this.#map) {
       const ref = weakRef.deref()
 
@@ -59,15 +79,15 @@ export class WeakCache<K, V extends object> implements Map<K, V> {
     }
   }
 
-  * entries (): IterableIterator<[K, V]> {
+  * entries (): MapIterator<[K, V]> {
     for (const [key, value] of this) { yield [key, value] }
   }
 
-  * keys (): IterableIterator<K> {
+  * keys (): MapIterator<K> {
     for (const [key] of this) { yield key }
   }
 
-  * values (): IterableIterator<V> {
+  * values (): MapIterator<V> {
     for (const [, value] of this) { yield value }
   }
 }

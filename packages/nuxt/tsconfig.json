@@ -1,6 +1,12 @@
 {
   "compilerOptions": {
-      "experimentalDecorators": true
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "noEmit": true
   },
-  "extends": "./playground/.nuxt/tsconfig.json"
+  "include": ["src"]
 }

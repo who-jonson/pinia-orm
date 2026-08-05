@@ -1,4 +1,4 @@
-import { addImports, addPlugin, addTemplate, createResolver, defineNuxtModule, isNuxt3 } from '@nuxt/kit'
+import { addImports, addPlugin, addTemplate, createResolver, defineNuxtModule } from '@nuxt/kit'
 import type { InstallOptions } from 'pinia-orm'
 import { CONFIG_DEFAULTS } from 'pinia-orm'
 
@@ -20,15 +20,25 @@ export interface PiniaOrmNuxtOptions extends InstallOptions {
    *
    */
   autoImports?: Array<string | [string, string]>
+  /**
+   * Add pinia-orm packages to vite's `optimizeDeps.include` so the dev
+   * server pre-bundles them and avoids "new dependency optimized" reloads.
+   * @default true
+   */
+  optimizeDeps?: boolean
 }
 
 export default defineNuxtModule<PiniaOrmNuxtOptions>({
   meta: {
     name: 'pinia-orm',
     configKey: 'piniaOrm',
+    compatibility: {
+      nuxt: '>=3.14.0',
+    },
   },
   defaults: {
     autoImports: [],
+    optimizeDeps: true,
     ...CONFIG_DEFAULTS,
   },
   setup (options, nuxt) {
@@ -36,6 +46,18 @@ export default defineNuxtModule<PiniaOrmNuxtOptions>({
 
     // Transpile runtime
     nuxt.options.build.transpile.push(resolver.resolve('./runtime'))
+
+    if (options.optimizeDeps) {
+      // Pre-bundle pinia-orm so vite doesn't restart the dev server with
+      // "new dependencies optimized" once the first repository is used.
+      nuxt.options.vite.optimizeDeps ||= {}
+      nuxt.options.vite.optimizeDeps.include ||= []
+      for (const dep of ['pinia-orm', 'pinia-orm > @pinia-orm/normalizr']) {
+        if (!nuxt.options.vite.optimizeDeps.include.includes(dep)) {
+          nuxt.options.vite.optimizeDeps.include.push(dep)
+        }
+      }
+    }
 
     nuxt.hook('devtools:customTabs', (tabs) => {
       tabs.push({
@@ -63,7 +85,7 @@ export const ormOptions = ${JSON.stringify(options, null, 2)}
       },
     })
 
-    addPlugin(resolver.resolve('./runtime/plugin.vue' + (isNuxt3() ? '3' : '2')), {
+    addPlugin(resolver.resolve('./runtime/plugin'), {
       append: true,
     })
 

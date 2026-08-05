@@ -35,8 +35,10 @@ import RoleUser from './RoleUser'
 class User extends Model {
   static entity = 'users'
   
-  @Attr(null) declare id: number | null
-  @BelongsToMany(() => Role, () => RoleUser, 'user_id', 'role_id') declare roles: Role[]
+  @Attr(null) id!: number | null
+  @BelongsToMany(() => Role, () => RoleUser, 'user_id', 'role_id') roles!: Role[]
+  // or if you have other pivot key
+  // @BelongsToMany(() => Role, { as: 'userPivot', model: () => RoleUser }, 'user_id', 'role_id')
 }
 ````
 
@@ -45,7 +47,10 @@ class User extends Model {
 ````ts
 function belongsToMany(
   related: typeof Model,
-  pivot: typeof Model,
+  pivot: (() => typeof Model) | {
+    as: string
+    model: () => typeof Model
+  },
   foreignPivotKey: string,
   relatedPivotKey: string,
   parentKey?: string,

@@ -1,6 +1,7 @@
 import type { Pinia } from 'pinia'
 import { acceptHMRUpdate } from 'pinia'
 import {
+  compareLike,
   compareWithOperator,
   generateKey,
   groupBy,
@@ -9,6 +10,7 @@ import {
   isFunction,
   orderBy,
 } from '../support/Utils'
+import type { SortComparator } from '../support/Utils'
 import type { Collection, Element, Elements, GroupedCollection, Item, NormalizedData } from '../data/Data'
 import type { Database } from '../database/Database'
 import { Relation } from '../model/attributes/relations/Relation'
@@ -23,6 +25,7 @@ import type { HasMany } from '../model/attributes/relations/HasMany'
 import type { MorphMany } from '../model/attributes/relations/MorphMany'
 import type { Type } from '../model/attributes/types/Type'
 import { BelongsToMany } from '../model/attributes/relations/BelongsToMany'
+import type { StoreActions } from '../composables/useStoreActions'
 import type {
   EagerLoad,
   EagerLoadConstraint,
@@ -92,7 +95,7 @@ export class Query<M extends Model = Model> {
   /**
    * The relationships that should be eager loaded.
    */
-  protected eagerLoad: EagerLoad<M> | {} = {}
+  protected eagerLoad: EagerLoad<M> | object = {}
 
   /**
    * The pinia store.
@@ -105,6 +108,8 @@ export class Query<M extends Model = Model> {
 
   protected getNewHydrated = false
 
+  protected hydrationKey?: string
+
   /**
    * Hydrated models. They are stored to prevent rerendering of child components.
    */
@@ -113,13 +118,14 @@ export class Query<M extends Model = Model> {
   /**
    * Create a new query instance.
    */
-  constructor (database: Database, model: M, cache: WeakCache<string, Collection<M> | GroupedCollection<M>> | undefined, hydratedData: Map<string, M>, pinia?: Pinia) {
+  constructor (database: Database, model: M, cache: WeakCache<string, Collection<M> | GroupedCollection<M>> | undefined, hydratedData: Map<string, M>, pinia?: Pinia, hydrationKey?: string) {
     this.database = database
     this.model = model
     this.pinia = pinia
     this.cache = cache
     this.hydratedDataCache = hydratedData
     this.getNewHydrated = false
+    this.hydrationKey = hydrationKey
   }
 
   /**
@@ -127,14 +133,14 @@ export class Query<M extends Model = Model> {
    */
   newQuery (model: string): Query<M> {
     this.getNewHydrated = true
-    return new Query<M>(this.database, this.database.getModel(model), this.cache, this.hydratedDataCache, this.pinia)
+    return new Query<M>(this.database, this.database.getModel(model), this.cache, this.hydratedDataCache, this.pinia, this.hydrationKey)
   }
 
   /**
    * Create a new query instance with constraints for the given model.
    */
   newQueryWithConstraints (model: string): Query<M> {
-    const newQuery = new Query<M>(this.database, this.database.getModel(model), this.cache, this.hydratedDataCache, this.pinia)
+    const newQuery = new Query<M>(this.database, this.database.getModel(model), this.cache, this.hydratedDataCache, this.pinia, this.hydrationKey)
 
     // Copy query constraints
     newQuery.eagerLoad = { ...this.eagerLoad }
@@ -152,7 +158,7 @@ export class Query<M extends Model = Model> {
    * Create a new query instance from the given relation.
    */
   newQueryForRelation (relation: Relation): Query<M> {
-    return new Query<M>(this.database, relation.getRelated() as M, this.cache, new Map<string, M>(), this.pinia)
+    return new Query<M>(this.database, relation.getRelated() as M, this.cache, new Map<string, M>(), this.pinia, this.hydrationKey)
   }
 
   /**
@@ -165,14 +171,14 @@ export class Query<M extends Model = Model> {
   /**
    * Commit a store action and get the data
    */
-  protected commit (name: string, payload?: any) {
-    const store = useDataStore(this.model.$storeName(), this.model.$piniaOptions(), this)(this.pinia)
+  protected commit (name: StoreActions | 'all' | 'get', payload?: any) {
+    const store = useDataStore(this.model.$storeName(), this.model.$piniaOptions(), this.model.$piniaExtend(), this)(this.pinia)
 
     if (import.meta.hot) {
       import.meta.hot.accept(acceptHMRUpdate(store as DataStore, import.meta.hot))
     }
 
-    if (name && typeof store[name] === 'function') { store[name](payload, false) }
+    if (name && name !== 'all' && name !== 'get' && typeof store[name] === 'function') { store[name](payload, false) }
 
     if (this.cache && ['get', 'all', 'insert', 'flush', 'delete', 'update', 'destroy'].includes(name)) { this.cache.clear() }
 
@@ -286,16 +292,31 @@ export class Query<M extends Model = Model> {
   }
 
   /**
+   * Add a "where like" clause to the query. The value may contain `%` as
+   * a wildcard for any number of characters and `_` for a single character.
+   */
+  whereLike (field: string, value: string | number, caseSensitive = false): this {
+    return this.where(query => compareLike(query[field as keyof Model], value, caseSensitive))
+  }
+
+  /**
+   * Add an "or where like" clause to the query.
+   */
+  orWhereLike (field: string, value: string | number, caseSensitive = false): this {
+    return this.orWhere(query => compareLike(query[field as keyof Model], value, caseSensitive))
+  }
+
+  /**
    * Add a "where has" clause to the query.
    */
-  whereHas<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }, operator?: string | number, count?: number): this {
+  whereHas<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null | undefined ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }, operator?: string | number, count?: number): this {
     return this.where(this.getFieldWhereForRelations(relation, callback, operator, count))
   }
 
   /**
    * Add an "or where has" clause to the query.
    */
-  orWhereHas<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }, operator?: string | number, count?: number): this {
+  orWhereHas<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null | undefined ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }, operator?: string | number, count?: number): this {
     return this.orWhere(this.getFieldWhereForRelations(relation, callback, operator, count))
   }
 
@@ -330,14 +351,14 @@ export class Query<M extends Model = Model> {
   /**
    * Add a "where doesn't have" clause to the query.
    */
-  whereDoesntHave<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }): this {
+  whereDoesntHave<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null | undefined ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }): this {
     return this.where(this.getFieldWhereForRelations(relation, callback, '=', 0))
   }
 
   /**
    * Add an "or where doesn't have" clause to the query.
    */
-  orWhereDoesntHave<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }): this {
+  orWhereDoesntHave<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null | undefined ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }): this {
     return this.orWhere(this.getFieldWhereForRelations(relation, callback, '=', 0))
   }
 
@@ -355,8 +376,8 @@ export class Query<M extends Model = Model> {
   /**
    * Add an "order by" clause to the query.
    */
-  orderBy (field: OrderBy, direction: OrderDirection = 'asc'): this {
-    this.orders.push({ field, direction })
+  orderBy (field: OrderBy, direction: OrderDirection = 'asc', flags: SortComparator = 'SORT_REGULAR'): this {
+    this.orders.push({ field, direction, flags })
 
     return this
   }
@@ -382,7 +403,7 @@ export class Query<M extends Model = Model> {
   /**
    * Set the relationships that should be eager loaded.
    */
-  with<T extends WithKeys<M>>(name: T | string & {}, callback: M[T] extends Model | Model[] | null ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }): this {
+  with<T extends WithKeys<M>>(name: T | string & {}, callback: M[T] extends Model | Model[] | null | undefined ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }): this {
     this.getNewHydrated = true
     // @ts-expect-error name type can be used
     this.eagerLoad[name] = callback
@@ -430,7 +451,7 @@ export class Query<M extends Model = Model> {
   /**
    * Get where closure for relations
    */
-  protected getFieldWhereForRelations<T extends WithKeys<M>>(relation: T | (string & {}), callback: M[T] extends Model | Model[] | null ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }, operator?: string | number, count?: number): WherePrimaryClosure<M> {
+  protected getFieldWhereForRelations<T extends WithKeys<M>>(relation: T | (string & {}), callback: M[T] extends Model | Model[] | null | undefined ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }, operator?: string | number, count?: number): WherePrimaryClosure<M> {
     const modelIdsByRelation = this.newQuery(this.model.$entity()).with(relation, callback).get(false)
       .filter((model) => {
         const modelRelation = model[relation as T]
@@ -481,20 +502,12 @@ export class Query<M extends Model = Model> {
    */
   get<T extends 'group' | 'collection' = 'collection'>(triggerHook?: boolean): T extends 'group' ? GroupedCollection<M> : Collection<M>
   get (triggerHook = true): Collection<M> | GroupedCollection<M> {
+    this.hydrationKey = this.hydrationKey ?? this.generateHydrationKey()
     if (!this.fromCache || !this.cache) { return this.internalGet(triggerHook) }
 
     const key = this.cacheConfig.key
       ? this.cacheConfig.key + JSON.stringify(this.cacheConfig.params)
-      : generateKey(this.model.$entity(), {
-        where: this.wheres,
-        groups: this.groups,
-        orders: this.orders,
-        eagerLoads: this.eagerLoad,
-        skip: this.skip,
-        take: this.take,
-        hidden: this.hidden,
-        visible: this.visible,
-      })
+      : this.hydrationKey
     const result = this.cache.get(key)
 
     if (result) { return result }
@@ -581,6 +594,19 @@ export class Query<M extends Model = Model> {
     return models.filter(model => comparator(model))
   }
 
+  protected generateHydrationKey (): string {
+    return generateKey(this.model.$entity(), {
+      where: this.wheres,
+      groups: this.groups,
+      orders: this.orders,
+      eagerLoads: this.eagerLoad,
+      skip: this.skip,
+      take: this.take,
+      hidden: this.hidden,
+      visible: this.visible,
+    })
+  }
+
   /**
    * Get comparator for the where clause.
    */
@@ -616,8 +642,9 @@ export class Query<M extends Model = Model> {
   protected filterOrder (models: Collection<M>): Collection<M> {
     const fields = this.orders.map(order => order.field)
     const directions = this.orders.map(order => order.direction)
+    const flags = this.orders.map(order => order.flags ?? 'SORT_REGULAR')
 
-    return orderBy(models, fields, directions)
+    return orderBy(models, fields, directions, flags)
   }
 
   /**
@@ -871,14 +898,38 @@ export class Query<M extends Model = Model> {
 
   /**
    * Insert the given records to the store by replacing any existing records.
+   * The `saving`/`creating` and `saved`/`created` lifecycle hooks are fired
+   * for every record unless `raw` is set to `true`. Records for which a
+   * before hook returns `false` are not persisted.
    */
-  fresh (records: Element[]): Collection<M>
-  fresh (record: Element): M
-  fresh (records: Element | Element[]): M | Collection<M> {
+  fresh (records: Element[], options?: { raw?: boolean }): Collection<M>
+  fresh (record: Element, options?: { raw?: boolean }): M
+  fresh (records: Element | Element[], options: { raw?: boolean } = {}): M | Collection<M> {
     this.hydratedDataCache.clear()
     const models = this.hydrate(records, { action: 'update' })
+    const modelArray = isArray(models) ? models : [models]
+    const recordArray = isArray(records) ? records : [records]
 
-    this.commit('fresh', this.compile(models))
+    let persistableModels = modelArray
+    const afterHooks: (() => void)[] = []
+
+    if (!options.raw) {
+      persistableModels = modelArray.filter((model, index) => {
+        const record = recordArray[index]
+        const isSaving = model.$self().saving(model, record)
+        const isCreating = model.$self().creating(model, record)
+        if (isSaving === false || isCreating === false) { return false }
+
+        afterHooks.push(() => {
+          model.$self().saved(model, record)
+          model.$self().created(model, record)
+        })
+        return true
+      })
+    }
+
+    this.commit('fresh', this.compile(persistableModels))
+    afterHooks.forEach(hook => hook())
 
     return models
   }
@@ -1018,8 +1069,7 @@ export class Query<M extends Model = Model> {
       const isDeleting = currentModel.$self().deleting(currentModel)
 
       if (isDeleting === false) { notDeletableIds.push(currentModel.$getIndexId()) } else {
-        this.hydratedDataCache.delete('set' + this.model.$entity() + currentModel.$getIndexId())
-        this.hydratedDataCache.delete('get' + this.model.$entity() + currentModel.$getIndexId())
+        this.hydratedDataCache.delete(this.model.$entity() + currentModel.$getIndexId())
         afterHooks.push(() => currentModel.$self().deleted(currentModel))
         this.checkAndDeleteRelations(currentModel)
       }
@@ -1065,11 +1115,11 @@ export class Query<M extends Model = Model> {
    */
   protected getHydratedModel (record: Element, options?: ModelOptions): M {
     const id = this.model.$entity() + this.model.$getKey(record, true)
-    const operationId = options?.operation + id
+    const operationId = id
     let savedHydratedModel = this.hydratedDataCache.get(operationId)
 
-    if (options?.action === 'update') {
-      this.hydratedDataCache.delete('get' + id)
+    if (options?.action === 'update' || this.hydrationKey === undefined) {
+      this.hydratedDataCache.delete(id)
       savedHydratedModel = undefined
     }
 
@@ -1078,12 +1128,14 @@ export class Query<M extends Model = Model> {
       savedHydratedModel
     ) { return savedHydratedModel }
 
-    const modelByType = this.model.$types()[record[this.model.$typeKey()]]
+    const modelByType = this.model.$getDiscriminatedModel(record)
     const getNewInsance = (newOptions?: ModelOptions) => (modelByType ? modelByType.newRawInstance() as M : this.model)
       .$newInstance(record, { relations: false, ...(options || {}), ...newOptions })
     const hydratedModel = getNewInsance()
 
-    if (isEmpty(this.eagerLoad) && options?.operation !== 'set') { this.hydratedDataCache.set(operationId, hydratedModel) }
+    if (isEmpty(this.eagerLoad) && options?.operation !== 'set' && this.hydrationKey !== undefined) {
+      this.hydratedDataCache.set(operationId, hydratedModel)
+    }
 
     return hydratedModel
   }

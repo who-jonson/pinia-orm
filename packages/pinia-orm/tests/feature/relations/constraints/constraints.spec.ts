@@ -1,37 +1,37 @@
 import { describe, expect, it } from 'vitest'
 
 import { Model, useRepo } from '../../../../src'
-import { Attr, BelongsToMany, HasOne, Num, Str } from '../../../../src/decorators'
+import { Attr, BelongsToMany, HasMany, HasOne, Num, Str } from '../../../../src/decorators'
 
 describe('feature/relations/constraints/constraints', () => {
   class Type extends Model {
     static entity = 'types'
 
-    @Attr() declare id: number
-    @Attr() declare phoneId: number
-    @Str('') declare name: string
+    @Attr() id!: number
+    @Attr() phoneId!: number
+    @Str('') name!: string
   }
 
   class Phone extends Model {
     static entity = 'phones'
 
-    @Attr() declare id: number
-    @Attr() declare userId: number
-    @Attr() declare roleId: number
-    @Str('') declare number: string
+    @Attr() id!: number
+    @Attr() userId!: number
+    @Attr() roleId!: number
+    @Str('') number!: string
 
     @HasOne(() => Type, 'phoneId')
-    declare type: Type | null
+    type!: Type | null
   }
 
   class Role extends Model {
     static entity = 'roles'
 
-    @Num(0) declare id: number
+    @Num(0) id!: number
     declare pivot: RoleUser
 
     @HasOne(() => Phone, 'roleId')
-    declare phone: Phone | null
+    phone!: Phone | null
   }
 
   class RoleUser extends Model {
@@ -39,22 +39,22 @@ describe('feature/relations/constraints/constraints', () => {
 
     static primaryKey = ['role_id', 'user_id']
 
-    @Attr(null) declare role_id: number | null
-    @Attr(null) declare user_id: number | null
-    @Attr(null) declare level: number | null
+    @Attr(null) role_id!: number | null
+    @Attr(null) user_id!: number | null
+    @Attr(null) level!: number | null
   }
 
   class User extends Model {
     static entity = 'users'
 
-    @Attr() declare id: number
-    @Str('') declare name: string
+    @Attr() id!: number
+    @Str('') name!: string
 
     @BelongsToMany(() => Role, () => RoleUser, 'user_id', 'role_id')
-    declare roles: Role[]
+    roles!: Role[]
 
     @HasOne(() => Phone, 'userId')
-    declare phone: Phone | null
+    phone!: Phone | null
   }
 
   it('can add constraints to the relationship query', () => {
@@ -119,5 +119,73 @@ describe('feature/relations/constraints/constraints', () => {
     expect(users[0].roles[0].phone!.number).toBe('999')
     expect(users[1].phone!.type!.id).toBe(2)
     expect(users[2].phone!.type).toBe(null)
+  })
+
+  it('loads with and without relations correctly', () => {
+    const usersRepo = useRepo(User)
+    const phonesRepo = useRepo(Phone)
+    const typesRepo = useRepo(Type)
+    usersRepo.cache()?.clear()
+
+    usersRepo.save([
+      { id: 1, name: 'John Doe', roles: [{ id: 1, pivot: { level: 1 }, phone: { id: 4, number: '999' } }, { id: 2 }, { id: 4 }] },
+      { id: 2, name: 'John Doe', roles: [{ id: 1, pivot: { level: 2 } }] },
+      { id: 3, name: 'Johnny Doe' },
+    ])
+
+    phonesRepo.save([
+      { id: 1, userId: 1, number: '123' },
+      { id: 2, userId: 2, number: '345' },
+      { id: 3, userId: 3, number: '789' },
+    ])
+    typesRepo.save([
+      { id: 1, phoneId: 1, name: 'iPhone' },
+      { id: 2, phoneId: 2, name: 'Android' },
+    ])
+
+    const users2 = usersRepo.get()
+    const users = usersRepo
+      .with('roles', (query) => {
+        query.with('phone')
+      })
+      .get()
+
+    expect(users[0].roles.length).toBe(3)
+    expect(users2[0].roles).toBe(undefined)
+  })
+
+  it('can add constraints to a relationship declared as optional', () => {
+    class Comment extends Model {
+      static entity = 'comments'
+
+      @Attr() id!: number
+      @Attr() postId!: number
+      @Str('') body!: string
+    }
+
+    class Post extends Model {
+      static entity = 'posts'
+
+      @Attr() id!: number
+      @Str('') title!: string
+
+      @HasMany(() => Comment, 'postId')
+      comments?: Comment[]
+    }
+
+    const postsRepo = useRepo(Post)
+
+    postsRepo.save([
+      { id: 1, title: 'A', comments: [{ id: 1, body: 'first' }, { id: 2, body: 'second' }] },
+    ])
+
+    const post = postsRepo
+      .with('comments', (query) => {
+        query.where('body', 'second')
+      })
+      .first()
+
+    expect(post?.comments?.length).toBe(1)
+    expect(post?.comments?.[0].body).toBe('second')
   })
 })

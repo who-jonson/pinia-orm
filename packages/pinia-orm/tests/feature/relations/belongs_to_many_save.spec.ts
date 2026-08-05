@@ -1,4 +1,4 @@
-import { describe, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { Model, useRepo } from '../../../src'
 import { Attr, BelongsToMany, Num } from '../../../src/decorators'
 import { assertState } from '../../helpers'
@@ -9,16 +9,16 @@ describe('feature/relations/belongs_to_many_save', () => {
 
     @Num(0) id!: number
     @BelongsToMany(() => Role, () => RoleUser, 'user_id', 'role_id')
-      roles!: Role
+    roles!: Role
 
     @BelongsToMany(() => Role, () => SuperRoleUser, 'user_id', 'role_id')
-      superRoles!: Role
+    superRoles!: Role
   }
 
   class Role extends Model {
     static entity = 'roles'
 
-    @Num(0) declare id: number
+    @Num(0) id!: number
     declare pivot: RoleUser | SuperRoleUser
   }
 
@@ -189,6 +189,10 @@ describe('feature/relations/belongs_to_many_save', () => {
         name: 'Client 5',
       },
     ])
+
+    const client = clientRepo.withAll().first()
+
+    expect(client.pivot).toBe(undefined)
 
     assertState({
       client_retailers: {

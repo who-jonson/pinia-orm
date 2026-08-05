@@ -10,21 +10,21 @@ describe('feature/relations/belongs_to_retrieve_composite', () => {
 
     static primaryKey = ['id', 'secondId']
 
-    @Attr() declare id: number
-    @Attr() declare secondId: number
-    @Str('') declare name: string
+    @Attr() id!: number
+    @Attr() secondId!: number
+    @Str('') name!: string
   }
 
   class Post extends Model {
     static entity = 'posts'
 
-    @Attr() declare id: number
-    @Attr() declare userId: number | null
-    @Attr() declare userSecondId: number | null
-    @Str('') declare title: string
+    @Attr() id!: number
+    @Attr() userId!: number | null
+    @Attr() userSecondId!: number | null
+    @Str('') title!: string
 
     @BelongsTo(() => User, ['userId', 'userSecondId'])
-    declare author: User | null
+    author!: User | null
   }
 
   it('can eager load belongs to relation', () => {
@@ -46,6 +46,32 @@ describe('feature/relations/belongs_to_retrieve_composite', () => {
       title: 'Title 01',
       author: { id: 1, secondId: 1, name: 'John Doe' },
     })
+  })
+
+  it('can eager load belongs to relation for many', () => {
+    const userRepo = useRepo(User)
+    const postsRepo = useRepo(Post)
+
+    userRepo.save({ id: 1, secondId: 1, name: 'John Doe' })
+    userRepo.save({ id: 1, secondId: 2, name: 'Jane Doe' })
+    postsRepo.save({ id: 1, userId: 1, userSecondId: 1, title: 'Title 01' })
+    postsRepo.save({ id: 2, userId: 1, userSecondId: 2, title: 'Title 02' })
+
+    const posts = postsRepo.with('author').orderBy('id').get()
+
+    expect(posts).toEqual([{
+      id: 1,
+      userId: 1,
+      userSecondId: 1,
+      title: 'Title 01',
+      author: { id: 1, secondId: 1, name: 'John Doe' },
+    }, {
+      id: 2,
+      userId: 1,
+      userSecondId: 2,
+      title: 'Title 02',
+      author: { id: 1, secondId: 2, name: 'Jane Doe' },
+    }])
   })
 
   it('can eager load missing relation as `null`', () => {

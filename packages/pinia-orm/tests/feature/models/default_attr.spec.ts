@@ -17,14 +17,13 @@ describe('feature/model/default_attr', () => {
         }
       }
 
-      id!: any
-      str!: string
-      num!: number
-      bool!: boolean
-      parameters!: any
+      declare id: any
+      declare str: string
+      declare num: number
+      declare bool: boolean
+      declare parameters: any
     }
 
-    console.log('New User 1')
     const user = new User({
       str: 'string',
       num: 1,

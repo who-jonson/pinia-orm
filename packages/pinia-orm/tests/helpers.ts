@@ -1,12 +1,11 @@
 import { createPinia, getActivePinia, setActivePinia } from 'pinia'
 import { nanoid } from 'nanoid'
 import { nanoid as nanoidNS } from 'nanoid/non-secure'
-import { nanoid as nanoidAsync } from 'nanoid/async'
 import { v1, v4 } from 'uuid'
 import type { Mock } from 'vitest'
 import { expect, vi } from 'vitest'
 
-import { createApp } from 'vue-demi'
+import { createApp } from 'vue'
 import type { Collection, Elements, InstallOptions, Model, PiniaOrmPlugin } from '../src'
 import * as Utils from '../src/support/Utils'
 import { createORM } from '../src'
@@ -18,10 +17,7 @@ interface Entities {
 export function createPiniaORM (options?: InstallOptions, plugins?: PiniaOrmPlugin[]) {
   const app = createApp({})
   const pinia = createPinia()
-  const piniaOrm = createORM(options)
-  if (plugins) {
-    plugins.forEach(plugin => piniaOrm().use(plugin))
-  }
+  const piniaOrm = createORM({ ...options, plugins })
   pinia.use(piniaOrm)
   app.use(pinia)
   setActivePinia(pinia)
@@ -83,10 +79,6 @@ export function mockNanoId (ids: any[]): void {
 
 export function mockNanoIdNS (ids: any[]): void {
   ids.forEach(id => (nanoidNS as Mock).mockImplementationOnce(() => id))
-}
-
-export function mockNanoIdAsync (ids: any[]): void {
-  ids.forEach(id => (nanoidAsync as Mock).mockImplementationOnce(() => id))
 }
 
 export function mockUuidV1 (ids: any[]): void {

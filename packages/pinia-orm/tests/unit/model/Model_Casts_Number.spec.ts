@@ -32,7 +32,7 @@ describe('unit/model/Model_Casts_Number', () => {
 
       @Cast(() => NumberCast)
       @Num(0)
-        count!: number
+      count!: number
     }
 
     expect(new User({ count: true }, { operation: 'get' }).count).toBe(1)
@@ -51,7 +51,7 @@ describe('unit/model/Model_Casts_Number', () => {
 
       @Cast(() => NumberCast)
       @Num(null, { notNullable: true })
-        count!: number | null
+      count!: number | null
     }
 
     expect(new User({ operation: 'get' }).count).toBe(null)
@@ -91,5 +91,35 @@ describe('unit/model/Model_Casts_Number', () => {
     })
 
     expect(userRepo.find(1)?.count).toBe(444)
+  })
+
+  it('should not warn about a wrong type when the cast converts the value on save', () => {
+    const warningSpy = vi.spyOn(console, 'warn')
+    warningSpy.mockClear()
+
+    class User extends Model {
+      static entity = 'users'
+
+      @Attr(0) id!: number
+
+      @Cast(() => NumberCast)
+      @Num(null)
+      count!: number | null
+    }
+
+    const userRepo = useRepo(User)
+    userRepo.save({
+      id: 1,
+      count: '10191',
+    })
+
+    assertState({
+      users: {
+        1: { id: 1, count: 10191 },
+      },
+    })
+
+    expect(userRepo.find(1)?.count).toBe(10191)
+    expect(warningSpy).not.toHaveBeenCalled()
   })
 })

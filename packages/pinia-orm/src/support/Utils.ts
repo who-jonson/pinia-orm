@@ -8,6 +8,8 @@ interface SortableArray<T> {
 
 export type SortFlags = 'SORT_REGULAR' | 'SORT_FLAG_CASE'
 
+export type SortComparator = SortFlags | Intl.Collator
+
 /**
  * Compare two values with custom string operator
  */
@@ -31,6 +33,21 @@ export function isNullish (value: any): value is undefined | null {
 }
 
 /**
+ * Compare a value against a SQL LIKE style pattern where `%` matches any
+ * sequence of characters and `_` matches a single character.
+ */
+export function compareLike (value: any, pattern: string | number, caseSensitive = false): boolean {
+  if (isNullish(value)) { return false }
+
+  const source = String(pattern)
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/%/g, '[\\s\\S]*')
+    .replace(/_/g, '[\\s\\S]')
+
+  return new RegExp(`^${source}$`, caseSensitive ? '' : 'i').test(String(value))
+}
+
+/**
  * Check if the given value is a Date object.
  */
 export function isDate (value: any): value is Date {
@@ -47,6 +64,7 @@ export function isArray (value: any): value is any[] {
 /**
  * Check if the given value is the type of array.
  */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
 export function isFunction (value: any): value is Function {
   return typeof value === 'function'
 }
@@ -76,13 +94,14 @@ export function orderBy<T extends Element> (
   collection: T[],
   iteratees: (((record: T) => any) | string)[],
   directions: string[],
-  flags: SortFlags = 'SORT_REGULAR',
+  flags: SortComparator | SortComparator[] = 'SORT_REGULAR',
 ): T[] {
   let index = -1
 
   const result = collection.map<SortableArray<T>>((value) => {
     const criteria = iteratees.map((iteratee) => {
       if (typeof iteratee === 'function') { return iteratee(value) }
+      if (!iteratee.includes('.') && !isDate(value[iteratee])) { return value[iteratee] }
       const newValue = getValue(value, iteratee, false)
       return isDate(newValue) ? new Date(newValue).getTime() : newValue
     })
@@ -128,7 +147,7 @@ function compareMultiple<T> (
   object: SortableArray<T>,
   other: SortableArray<T>,
   directions: string[],
-  flags: SortFlags,
+  flags: SortComparator | SortComparator[],
 ): number {
   let index = -1
 
@@ -137,7 +156,7 @@ function compareMultiple<T> (
   const length = objCriteria.length
 
   while (++index < length) {
-    const result = compareAscending(objCriteria[index], othCriteria[index], flags)
+    const result = compareAscending(objCriteria[index], othCriteria[index], isArray(flags) ? flags[index] ?? 'SORT_REGULAR' : flags)
 
     if (result) {
       const direction = directions[index]
@@ -151,8 +170,13 @@ function compareMultiple<T> (
 /**
  * Compares values to sort them in ascending order.
  */
-function compareAscending (value: any, other: any, flags: SortFlags): number {
+function compareAscending (value: any, other: any, flags: SortComparator): number {
   if (value !== other) {
+    if (typeof flags === 'object' && typeof value === 'string' && typeof other === 'string') {
+      const result = flags.compare(value, other)
+      return result > 0 ? 1 : result < 0 ? -1 : 0
+    }
+
     const valIsDefined = value !== undefined
     const valIsNull = value === null
     const valIsReflexive = value === value
@@ -227,7 +251,7 @@ export function generateId (size: number, alphabet: string) {
   let i = size
   while (i--) {
     // `| 0` is more compact and faster than `Math.floor()`.
-    id += alphabet[(Math.random() * 64) | 0]
+    id += alphabet[(Math.random() * alphabet.length) | 0]
   }
   return id
 }
@@ -261,7 +285,7 @@ export function getValue (obj: Record<string, any>, keys: string | string[], ifN
 /**
  * Compare two objects deep.
  */
-export function equals (a: any, b: any): Boolean {
+export function equals (a: any, b: any): boolean {
   if (a === b) { return true }
   if (a instanceof Date && b instanceof Date) { return a.getTime() === b.getTime() }
   if (!a || !b || (typeof a !== 'object' && typeof b !== 'object')) { return a === b }

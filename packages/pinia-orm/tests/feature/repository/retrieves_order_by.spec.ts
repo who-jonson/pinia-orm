@@ -115,6 +115,34 @@ describe('feature/repository/retrieves_order_by', () => {
     assertModels(users, expected)
   })
 
+  it('can sort records locale aware with a collator', () => {
+    const userRepo = useRepo(User)
+
+    fillState({
+      users: {
+        1: { id: 1, name: 'T', age: 40 },
+        2: { id: 2, name: 'A', age: 30 },
+        3: { id: 3, name: 'Š', age: 20 },
+        4: { id: 4, name: 'U', age: 20 },
+        5: { id: 5, name: 'B', age: 50 },
+      },
+    })
+
+    const users = userRepo.orderBy('name', 'asc', new Intl.Collator('lt')).get()
+
+    const expected = [
+      { id: 2, name: 'A', age: 30 },
+      { id: 5, name: 'B', age: 50 },
+      { id: 3, name: 'Š', age: 20 },
+      { id: 1, name: 'T', age: 40 },
+      { id: 4, name: 'U', age: 20 },
+    ]
+
+    expect(users).toHaveLength(5)
+    assertInstanceOf(users, User)
+    assertModels(users, expected)
+  })
+
   it('can sort nested records by pivot', () => {
     Model.clearRegistries()
     class User extends Model {
@@ -170,12 +198,12 @@ describe('feature/repository/retrieves_order_by', () => {
 
     const expected = [
       { id: 1, name: 'James', roles: [
-        { id: 2, users: [], pivot_role_id_roleUser: null },
-        { id: 1, users: [], pivot_role_id_roleUser: null },
+        { id: 2, users: [] },
+        { id: 1, users: [] },
       ],
       },
       { id: 2, name: 'Andy', roles: [
-        { id: 1, users: [], pivot_role_id_roleUser: null },
+        { id: 1, users: [] },
       ],
       },
       { id: 3, name: 'David', roles: [] },
@@ -194,7 +222,7 @@ describe('feature/repository/retrieves_order_by', () => {
       @Attr() id!: any
       @Str('') name!: string
       @Num(0) age!: number
-      @Cast(() => DateCast) @Attr(null) declare createdAt: Date
+      @Cast(() => DateCast) @Attr(null) createdAt!: Date
     }
 
     const userRepo = useRepo(User)

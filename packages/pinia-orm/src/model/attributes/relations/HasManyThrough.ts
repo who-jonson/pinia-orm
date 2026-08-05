@@ -95,7 +95,7 @@ export class HasManyThrough extends Relation {
       const key = model[this.localKey]
 
       dictionary[key]
-        ? model.$setRelation(relation, dictionary[key][0])
+        ? model.$setRelation(relation, dictionary[key].flat().filter(item => item !== undefined))
         : model.$setRelation(relation, [])
     })
   }
@@ -105,7 +105,7 @@ export class HasManyThrough extends Relation {
    */
   protected buildDictionary (throughResults: Collection<any>, results: Collection<any>): Dictionary {
     return this.mapToDictionary(throughResults, (throughResult) => {
-      return [throughResult[this.firstKey as keyof Model] as string, results[throughResult[this.secondLocalKey as keyof Model] as number]]
+      return [throughResult[this.firstKey as keyof Model] as unknown as string, results[throughResult[this.secondLocalKey as keyof Model] as unknown as number]]
     })
   }
 

@@ -24,6 +24,9 @@ import type { TypeDefault } from './attributes/types/Type'
 import { HasManyThrough } from './attributes/relations/HasManyThrough'
 import { MorphToMany } from './attributes/relations/MorphToMany'
 import type { UidOptions } from './decorators/Contracts'
+import { MorphedByMany } from './attributes/relations/MorphedByMany'
+import type { ModelMetadata } from './decorators/Metadata'
+import { CASTS, FIELDS, FIELDS_ON_DELETE, HIDDEN, MUTATORS } from './decorators/Metadata'
 
 export type ModelFields = Record<string, Attribute>
 export type ModelSchemas = Record<string, ModelFields>
@@ -58,13 +61,9 @@ export interface InheritanceTypes {
   [key: string]: typeof Model
 }
 
-export type WithKeys<T> = { [P in keyof T]: T[P] extends (Model | null) | Model[] ? P & string : never }[keyof T]
-// export type WithKeys<T> = { [P in keyof T]: T[P] extends Model[] ? P : never }[keyof T];
+export type WithKeys<T> = { [P in keyof T]-?: NonNullable<T[P]> extends Model | Model[] ? P & string : never }[keyof T]
 
 export class Model {
-  // [s: keyof ModelFields]: any
-  pivot?: any
-
   declare _meta: undefined | MetaValues
   /**
    * The name of the model.
@@ -125,7 +124,7 @@ export class Model {
   /**
    * Original model data.
    */
-  protected static original: Record<string, any> = {}
+  protected static original: Record<string, Record<string, Element>> = {}
 
   /**
    * The schema for the model. It contains the result of the `fields`
@@ -146,15 +145,17 @@ export class Model {
    */
   protected static piniaOptions = {}
 
-  /**
-   * The mutators for the model.
-   */
-  protected static fieldMutators: Mutators = {}
+  protected static piniaExtend = {}
 
   /**
-   * The casts for the model.
+   * The mutators for the model, keyed by entity.
    */
-  protected static fieldCasts: Record<string, any> = {}
+  protected static fieldMutators: Record<string, Mutators> = {}
+
+  /**
+   * The casts for the model, keyed by entity.
+   */
+  protected static fieldCasts: Record<string, Casts> = {}
 
   /**
    * The array of booted models.
@@ -188,17 +189,45 @@ export class Model {
   }
 
   /**
-   * Build the schema by evaluating fields and registry.
+   * Get the decorator metadata of this model class. Metadata objects
+   * inherit from the parent class metadata, so decorated fields of base
+   * classes are visible on derived classes as well.
+   */
+  protected static decoratorMetadata (): ModelMetadata {
+    return (this as any)[(Symbol as any).metadata] ?? {}
+  }
+
+  /**
+   * Register mutators, casts, hidden fields and delete modes collected by
+   * the property decorators.
+   */
+  protected static applyDecoratorMetadata (): void {
+    const metadata = this.decoratorMetadata()
+
+    for (const key in metadata[MUTATORS]) { this.setMutator(key, metadata[MUTATORS]![key]) }
+    for (const key in metadata[CASTS]) { this.setCast(key, metadata[CASTS]![key]) }
+    for (const key in metadata[HIDDEN]) { this.setHidden(key) }
+    for (const key in metadata[FIELDS_ON_DELETE]) { this.setFieldDeleteMode(key, metadata[FIELDS_ON_DELETE]![key]) }
+  }
+
+  /**
+   * Build the schema by evaluating fields, decorated fields and registry.
    */
   protected static initializeSchema (): void {
     const entity = this.modelEntity()
     this.schemas[entity] = {}
     this.fieldsOnDelete[entity] = this.fieldsOnDelete[entity] ?? {}
 
-    const registry = {
+    this.applyDecoratorMetadata()
+
+    const metadataFields = this.decoratorMetadata()[FIELDS] ?? {}
+    const registry: Record<string, Attribute | (() => Attribute)> = {
       ...this.fields(),
-      ...this.registries[entity],
     }
+
+    for (const key in metadataFields) { registry[key] = metadataFields[key](this) }
+
+    Object.assign(registry, this.registries[entity])
 
     for (const key in registry) {
       const attribute = registry[key]
@@ -247,7 +276,8 @@ export class Model {
     key: string,
     mutator: MutatorFunctions<any>,
   ): M {
-    this.fieldMutators[key] = mutator
+    this.fieldMutators[this.modelEntity()] = this.fieldMutators[this.modelEntity()] ?? {}
+    this.fieldMutators[this.modelEntity()][key] = mutator
 
     return this
   }
@@ -260,7 +290,8 @@ export class Model {
     key: string,
     to: typeof CastAttribute,
   ): M {
-    this.fieldCasts[key] = to
+    this.fieldCasts[this.modelEntity()] = this.fieldCasts[this.modelEntity()] ?? {}
+    this.fieldCasts[this.modelEntity()][key] = to
 
     return this
   }
@@ -272,7 +303,8 @@ export class Model {
     this: M,
     key: keyof ModelFields,
   ): M {
-    this.hidden.push(key)
+    if (!Object.prototype.hasOwnProperty.call(this, 'hidden')) { this.hidden = [...this.hidden] }
+    if (!this.hidden.includes(key)) { this.hidden.push(key) }
 
     return this
   }
@@ -430,6 +462,39 @@ export class Model {
     this.schemas[related.modelEntity()][`pivot_${relatedId}_${pivotInstance.$entity()}`] = new MorphOne(instance, pivotInstance, relatedId, model.$entity(), relatedKey)
 
     return new MorphToMany(
+      model,
+      instance,
+      pivotInstance,
+      relatedId,
+      id,
+      type,
+      parentKey,
+      relatedKey,
+    )
+  }
+
+  /**
+   * Create a new MorphedByMany relation instance.
+   */
+  static morphedByMany (
+    related: typeof Model,
+    pivot: typeof Model,
+    relatedId: string,
+    id: string,
+    type: string,
+    parentKey?: string,
+    relatedKey?: string,
+  ): MorphToMany {
+    const instance = related.newRawInstance()
+    const model = this.newRawInstance()
+    const pivotInstance = pivot.newRawInstance()
+
+    parentKey = parentKey ?? model.$getLocalKey()
+    relatedKey = relatedKey ?? instance.$getLocalKey()
+
+    this.schemas[related.modelEntity()][`pivot_${relatedId}_${pivotInstance.$entity()}`] = new MorphOne(model, pivotInstance, id, type, relatedKey)
+
+    return new MorphedByMany(
       model,
       instance,
       pivotInstance,
@@ -628,7 +693,7 @@ export class Model {
   /**
    * Get the namespace.
    */
-  $namespace (): String {
+  $namespace (): string {
     return this.$self().usedNamespace()
   }
 
@@ -675,10 +740,41 @@ export class Model {
   }
 
   /**
+   * Resolve the most specific discriminated model for the given record by
+   * walking nested type keys (e.g. Document -> File -> Video).
+   */
+  $getDiscriminatedModel (record: Element): typeof Model | undefined {
+    let modelByType = this.$types()[record[this.$typeKey()]]
+
+    if (!modelByType) { return undefined }
+
+    const visited = new Set<typeof Model>([modelByType])
+
+    while (true) {
+      const instance = modelByType.newRawInstance()
+      const nextModel = instance.$types()[record[instance.$typeKey()]]
+
+      if (!nextModel || visited.has(nextModel)) { break }
+
+      visited.add(nextModel)
+      modelByType = nextModel
+    }
+
+    return modelByType
+  }
+
+  /**
    * Get the pinia options for this model.
    */
   $piniaOptions () {
     return this.$self().piniaOptions
+  }
+
+  /**
+   * Get the extended functionality.
+   */
+  $piniaExtend () {
+    return this.$self().piniaExtend
   }
 
   /**
@@ -741,7 +837,7 @@ export class Model {
   $casts (): Casts {
     return {
       ...this.$getCasts(),
-      ...this.$self().fieldCasts,
+      ...this.$self().fieldCasts[this.$modelEntity()],
     }
   }
 
@@ -762,7 +858,7 @@ export class Model {
     const fillRelation = options.relations ?? true
     const mutators: Mutators = {
       ...this.$getMutators(),
-      ...this.$self().fieldMutators,
+      ...this.$self().fieldMutators[this.$modelEntity()],
     }
 
     for (const key in fields) {
@@ -783,18 +879,27 @@ export class Model {
 
       if (cast && operation === 'get') { value = cast.get(value) }
 
+      // Apply the cast before the field is filled so the type check
+      // validates the casted value instead of the raw input.
+      if (cast && operation === 'set' && value !== undefined) {
+        value = options.action === 'update' ? cast.get(value) : cast.set(value)
+      }
+
       let keyValue = this.$fillField(key, attr, value)
 
       if (mutator && typeof mutator !== 'function' && operation === 'set' && mutator.set) { keyValue = mutator.set(keyValue) }
 
-      if (cast && operation === 'set') {
+      // Values filled by the attribute default still need to pass the cast.
+      if (cast && operation === 'set' && value === undefined) {
         keyValue = options.action === 'update' ? cast.get(keyValue) : cast.set(keyValue)
       }
 
       this[key as keyof this] = this[key as keyof this] ?? keyValue
     }
 
-    operation === 'set' && (this.$self().original[this.$getKey(this, true) as string] = this.$getAttributes())
+    operation === 'set' && (
+      (this.$self().original[this.$modelEntity()] ??= {})[this.$getKey(this, true) as string] = this.$getAttributes()
+    )
 
     modelConfig.withMeta && operation === 'set' && this.$fillMeta(options.action)
 
@@ -947,13 +1052,9 @@ export class Model {
   /**
    * Set the given relationship on the model.
    */
-  $setRelation (relation: string, model: Model | Model[] | null): this {
-    if (relation.includes('pivot')) {
-      this.pivot = model
-      return this
-    }
+  $setRelation (relation: string, model: Model | Model[] | null, isPivot = false): this {
     // @ts-expect-error Setting model as field
-    if (this.$fields()[relation]) { this[relation as keyof this] = model }
+    if (this.$fields()[relation] || isPivot) { this[relation as keyof this] = model }
 
     return this
   }
@@ -976,7 +1077,7 @@ export class Model {
    * Get the original values of the model instance
    */
   $getOriginal (): Element {
-    return this.$self().original[this.$getKey(this, true) as string]
+    return (this.$self().original[this.$modelEntity()] ??= {})[this.$getKey(this, true) as string]
   }
 
   /**
@@ -994,7 +1095,7 @@ export class Model {
   /**
    * Checks if attributes were changed
    */
-  $isDirty ($attribute?: keyof ModelFields): Boolean {
+  $isDirty ($attribute?: keyof ModelFields): boolean {
     const original = this.$getOriginal()
     if ($attribute) {
       if (!Object.keys(original).includes($attribute)) { throwError(['The property"', $attribute, '"does not exit in the model "', this.$entity(), '"']) }

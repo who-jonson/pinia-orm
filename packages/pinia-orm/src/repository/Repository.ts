@@ -1,6 +1,7 @@
 import type { Pinia } from 'pinia'
 import type { Constructor } from '../types'
 import { assert, isArray } from '../support/Utils'
+import type { SortComparator } from '../support/Utils'
 import type { Collection, Element, Item } from '../data/Data'
 import type { Database } from '../database/Database'
 import type { Model, WithKeys } from '../model/Model'
@@ -50,6 +51,15 @@ export interface Repository<M extends Model = Model> {
    * Add a where clause to get all results where `field` is not null
    */
   whereNotNull (field: string): Query<M>
+  /**
+   * Add a where clause where `field` matches a SQL LIKE style pattern.
+   * `%` matches any number of characters, `_` a single character.
+   */
+  whereLike (field: string, value: string | number, caseSensitive?: boolean): Query<M>
+  /**
+   * Add an "or where like" clause to the query.
+   */
+  orWhereLike (field: string, value: string | number, caseSensitive?: boolean): Query<M>
   /**
    * Find the model with the given id.
    */
@@ -199,7 +209,7 @@ export class Repository<M extends Model = Model> {
    * Returns the pinia store used with this model
    */
   piniaStore<S extends DataStoreState = DataStoreState> () {
-    return useDataStore<S>(this.model.$storeName(), this.model.$piniaOptions(), this.query())(this.pinia)
+    return useDataStore<S>(this.model.$storeName(), this.model.$piniaOptions(), this.model.$piniaExtend(), this.query())(this.pinia)
   }
 
   /**
@@ -248,14 +258,14 @@ export class Repository<M extends Model = Model> {
   /**
    * Add a "where has" clause to the query.
    */
-  whereHas<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }, operator?: string | number, count?: number): Query<M> {
+  whereHas<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null | undefined ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }, operator?: string | number, count?: number): Query<M> {
     return this.query().whereHas<T>(relation, callback, operator, count)
   }
 
   /**
    * Add an "or where has" clause to the query.
    */
-  orWhereHas<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }, operator?: string | number, count?: number): Query<M> {
+  orWhereHas<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null | undefined ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }, operator?: string | number, count?: number): Query<M> {
     return this.query().orWhereHas(relation, callback, operator, count)
   }
 
@@ -290,14 +300,14 @@ export class Repository<M extends Model = Model> {
   /**
    * Add a "where doesn't have" clause to the query.
    */
-  whereDoesntHave<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }): Query<M> {
+  whereDoesntHave<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null | undefined ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }): Query<M> {
     return this.query().whereDoesntHave(relation, callback)
   }
 
   /**
    * Add an "or where doesn't have" clause to the query.
    */
-  orWhereDoesntHave<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }): Query<M> {
+  orWhereDoesntHave<T extends WithKeys<M>>(relation: T | string & {}, callback: M[T] extends Model | Model[] | null | undefined ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : () => void = () => { }): Query<M> {
     return this.query().orWhereDoesntHave(relation, callback)
   }
 
@@ -332,8 +342,8 @@ export class Repository<M extends Model = Model> {
   /**
    * Add an "order by" clause to the query.
    */
-  orderBy (field: OrderBy, direction?: OrderDirection): Query<M> {
-    return this.query().orderBy(field, direction)
+  orderBy (field: OrderBy, direction?: OrderDirection, flags?: SortComparator): Query<M> {
+    return this.query().orderBy(field, direction, flags)
   }
 
   /**
@@ -353,7 +363,7 @@ export class Repository<M extends Model = Model> {
   /**
    * Set the relationships that should be eager loaded.
    */
-  with<T extends WithKeys<M>>(name: string & {} | T, callback?: M[T] extends Model | Model[] | null ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : never): Query<M> {
+  with<T extends WithKeys<M>>(name: string & {} | T, callback?: M[T] extends Model | Model[] | null | undefined ? EagerLoadConstraint<GetElementType<NonNullable<M[T]>>> : never): Query<M> {
     return this.query().with(name, callback)
   }
 
@@ -403,15 +413,16 @@ export class Repository<M extends Model = Model> {
   make (records: Element[]): M[]
   make (record?: Element): M
   make (records?: Element | Element[]): M | M[] {
-    if (isArray(records)) {
-      return records.map(record => this.getModel().$newInstance(record, {
+    const makeOne = (record?: Element): M => {
+      const model = this.getModel()
+      const typeModel = record ? model.$getDiscriminatedModel(record) : undefined
+
+      return (typeModel ? typeModel.newRawInstance() as M : model).$newInstance(record, {
         relations: true,
-      }))
+      })
     }
 
-    return this.getModel().$newInstance(records, {
-      relations: true,
-    })
+    return isArray(records) ? records.map(makeOne) : makeOne(records)
   }
 
   /*
@@ -421,6 +432,41 @@ export class Repository<M extends Model = Model> {
   save (record: Element): M
   public save (records: Element | Element[]): M | M[] {
     return this.query().save(records)
+  }
+
+  /**
+   * Get the first record matching the given attributes or persist a new
+   * record made from the merged attributes and values.
+   */
+  firstOrCreate (attributes: Element, values: Element = {}): M {
+    const record = this.matching(attributes)
+
+    return record ?? this.save({ ...attributes, ...values })
+  }
+
+  /**
+   * Update the first record matching the given attributes with the given
+   * values or persist a new record made from the merged attributes and values.
+   */
+  updateOrCreate (attributes: Element, values: Element = {}): M {
+    const record = this.matching(attributes)
+
+    if (!record) { return this.save({ ...attributes, ...values }) }
+
+    const primaryKey = this.getModel().$primaryKey()
+    const keyValues = (isArray(primaryKey) ? primaryKey : [primaryKey]).reduce<Element>((keys, key) => {
+      keys[key] = record[key as keyof M] as any
+      return keys
+    }, {})
+
+    return this.save({ ...keyValues, ...values })
+  }
+
+  /**
+   * Get the first record matching the given attributes.
+   */
+  protected matching (attributes: Element): Item<M> {
+    return this.query().where((model: M) => Object.entries(attributes).every(([field, value]) => model[field as keyof M] === value)).first()
   }
 
   /**
@@ -442,10 +488,10 @@ export class Repository<M extends Model = Model> {
   /**
    * Insert the given records to the store by replacing any existing records.
    */
-  fresh (records: Element[]): Collection<M>
-  fresh (record: Element): M
-  fresh (records: Element | Element[]): M | Collection<M> {
-    return this.query().fresh(records)
+  fresh (records: Element[], options?: { raw?: boolean }): Collection<M>
+  fresh (record: Element, options?: { raw?: boolean }): M
+  fresh (records: Element | Element[], options?: { raw?: boolean }): M | Collection<M> {
+    return this.query().fresh(records, options)
   }
 
   /**

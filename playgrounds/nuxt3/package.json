@@ -8,14 +8,16 @@
     "start": "node .output/server/index.mjs"
   },
   "devDependencies": {
-    "@pinia-orm/nuxt": "^1.7.0",
-    "@pinia/nuxt": "^0.5.1",
-    "nuxt": "^3.11.2",
-    "pinia": "^2.1.7",
+    "@pinia-orm/axios": "workspace:*",
+    "@pinia-orm/nuxt": "workspace:*",
+    "@pinia/nuxt": "^1.0.1",
+    "nuxt": "^4.5.0",
+    "pinia": "^4.0.2",
     "pinia-orm": "workspace:*"
   },
   "dependencies": {
-    "nanoid": "^4.0.0",
-    "uuid": "^8.3.2"
+    "axios": "^1.18.1",
+    "nanoid": "^5.1.16",
+    "uuid": "^11.1.1"
   }
 }

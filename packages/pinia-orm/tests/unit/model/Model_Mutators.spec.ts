@@ -33,10 +33,58 @@ describe('unit/model/Model_Mutators', () => {
 
       @Mutate((value: any) => value.toUpperCase())
       @Attr('')
-        name!: string
+      name!: string
     }
 
     expect(new User({ name: 'john doe' }, { operation: 'get' }).name).toBe('JOHN DOE')
+  })
+
+  it('should keep decorator mutators of same named fields separate between entities', () => {
+    class User extends Model {
+      static entity = 'users'
+
+      @Mutate((value: any) => value.toUpperCase())
+      @Attr('')
+      firstName!: string
+    }
+
+    class Contact extends Model {
+      static entity = 'contacts'
+
+      @Mutate((value: any) => value.toLowerCase())
+      @Attr('')
+      firstName!: string
+    }
+
+    expect(new User({ firstName: 'John' }, { operation: 'get' }).firstName).toBe('JOHN')
+    expect(new Contact({ firstName: 'John' }, { operation: 'get' }).firstName).toBe('john')
+  })
+
+  it('should only apply mutators added with "setMutator" to the model they were set on', () => {
+    class User extends Model {
+      static entity = 'users'
+
+      @Attr(0) id!: number
+      @Attr('') title!: string
+    }
+
+    class Todo extends Model {
+      static entity = 'todos'
+
+      @Attr(0) id!: number
+      @Attr('') title!: string
+    }
+
+    Todo.setMutator('title', { get: (value: any) => value.toUpperCase() })
+
+    const userRepo = useRepo(User)
+    const todoRepo = useRepo(Todo)
+
+    userRepo.save({ id: 1, title: 'user title' })
+    todoRepo.save({ id: 1, title: 'todo title' })
+
+    expect(todoRepo.find(1)?.title).toBe('TODO TITLE')
+    expect(userRepo.find(1)?.title).toBe('user title')
   })
 
   it('should mutate data if mutators with getter are present', () => {
@@ -191,9 +239,9 @@ describe('unit/model/Model_Mutators', () => {
     class Post extends Model {
       static entity = 'posts'
 
-      @Num(0) declare id: number
-      @Num(0) declare userId: number
-      @Str('') declare title: string
+      @Num(0) id!: number
+      @Num(0) userId!: number
+      @Str('') title!: string
 
       static mutators () {
         return {
@@ -208,11 +256,11 @@ describe('unit/model/Model_Mutators', () => {
     class User extends Model {
       static entity = 'users'
 
-      @Num(0) declare id: number
-      @Str('') declare name: string
+      @Num(0) id!: number
+      @Str('') name!: string
 
       @HasMany(() => Post, 'userId')
-      declare posts: Post[]
+      posts!: Post[]
     }
 
     const userRepo = useRepo(User)
@@ -307,7 +355,6 @@ describe('unit/model/Model_Mutators', () => {
       },
     })
 
-    console.log('calling with request')
     const result = userRepo.with('permissions').first()
 
     expect(result?.permissions[0].name).toBe('color')

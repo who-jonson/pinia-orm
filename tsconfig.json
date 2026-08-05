@@ -18,7 +18,7 @@
 
     "target": "esnext",
     "module": "esnext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "allowJs": false,
     "skipLibCheck": true,
 
@@ -30,7 +30,6 @@
     "strict": true,
     "isolatedModules": true,
 
-    "experimentalDecorators": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "removeComments": false,

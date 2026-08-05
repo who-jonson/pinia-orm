@@ -49,7 +49,7 @@ describe('feature/hooks/creating', () => {
       { id: 2, name: 'John Doe 2', age: 40 },
     ])
 
-    expect(useRepo(User).hydratedDataCache.size).toBe(2)
+    expect(useRepo(User).hydratedDataCache.size).toBe(0)
     expect(creatingMethod).toHaveBeenCalledTimes(2)
     expect(updatingMethod).toHaveBeenCalledTimes(0)
     expect(savingMethod).toHaveBeenCalledTimes(2)
@@ -91,9 +91,9 @@ describe('feature/hooks/creating', () => {
     class User extends Model {
       static entity = 'users'
 
-      @Uid() declare id: string
-      @Str('') declare name: string
-      @Num(0) declare age: number
+      @Uid() id!: string
+      @Str('') name!: string
+      @Num(0) age!: number
 
       static creating (model: User) {
         model.name = 'John'
@@ -116,9 +116,9 @@ describe('feature/hooks/creating', () => {
     class User extends Model {
       static entity = 'users'
 
-      @Uid() declare id: string
-      @Str('') declare name: string
-      @Num(0) declare age: number
+      @Uid() id!: string
+      @Str('') name!: string
+      @Num(0) age!: number
 
       static creating (model: User) {
         model.name = 'John'

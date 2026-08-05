@@ -7,30 +7,33 @@ import {
   HasManyBy,
   HasManyThrough, HasOne,
   MorphMany,
-  MorphOne, MorphTo, MorphToMany, Num, Str,
+  MorphOne, MorphTo, MorphToMany, MorphedByMany, Num, Str,
 } from '../../../src/decorators'
 
 describe('unit/model/Model_Relations', () => {
   class Phone extends Model {
     static entity = 'phones'
 
-    @Attr() declare id: number
-    @Attr() declare userId: number
+    @Attr() id!: number
+    @Attr() userId!: number
   }
 
   class Tag extends Model {
     static entity = 'tags'
 
-    @Attr() declare id: number
+    @MorphedByMany(() => User, () => Taggable, 'tagId', 'taggableId', 'taggableType')
+    users!: User[]
+
+    @Attr() id!: number
   }
   class Taggable extends Model {
     static entity = 'taggables'
 
-    static primaryKey = ['tagId', 'commentableId', 'commentableType']
+    static primaryKey = ['tagId', 'taggableId', 'taggableType']
 
-    @Attr('') declare tagId: number
-    @Attr(null) declare taggableId: number | null
-    @Attr(null) declare taggableType: string | null
+    @Attr('') tagId!: number
+    @Attr(null) taggableId!: number | null
+    @Attr(null) taggableType!: string | null
   }
 
   class Country extends Model {
@@ -38,13 +41,13 @@ describe('unit/model/Model_Relations', () => {
 
     @Attr() id!: number
     @HasManyThrough(() => Post, () => User, 'countryId', 'userId')
-    declare posts: Post[]
+    posts!: Post[]
   }
 
   class Role extends Model {
     static entity = 'roles'
 
-    @Num(0) declare id: number
+    @Num(0) id!: number
     declare pivot: RoleUser
   }
 
@@ -53,9 +56,9 @@ describe('unit/model/Model_Relations', () => {
 
     static primaryKey = ['roleIid', 'userId']
 
-    @Attr(null) declare roleIid: number | null
-    @Attr(null) declare userId: number | null
-    @Attr(null) declare level: number | null
+    @Attr(null) roleIid!: number | null
+    @Attr(null) userId!: number | null
+    @Attr(null) level!: number | null
   }
 
   class Comment extends Model {
@@ -88,25 +91,25 @@ describe('unit/model/Model_Relations', () => {
     @Attr() nameIds!: number[]
 
     @HasOne(() => Phone, 'userId')
-      phone!: Phone | null
+    phone!: Phone | null
 
     @BelongsTo(() => Country, 'countryId')
-      country!: Country | null
+    country!: Country | null
 
     @HasMany(() => Post, 'userId')
-      posts!: Post[]
+    posts!: Post[]
 
     @HasManyBy(() => Name, 'nameIds')
-      names!: Name[]
+    names!: Name[]
 
     @MorphOne(() => Image, 'imageableId', 'imageableType')
-      image!: Image | null
+    image!: Image | null
 
-    @BelongsToMany(() => Role, () => RoleUser, 'userId', 'roleId') declare roles: Role[]
+    @BelongsToMany(() => Role, () => RoleUser, 'userId', 'roleId') roles!: Role[]
 
-    @MorphToMany(() => Tag, () => Taggable, 'tagId', 'taggableId', 'taggableType') declare tags: Tag[]
+    @MorphToMany(() => Tag, () => Taggable, 'tagId', 'taggableId', 'taggableType') tags!: Tag[]
 
-    @MorphMany(() => Comment, 'commentableId', 'commentableType') declare comments: Comment[]
+    @MorphMany(() => Comment, 'commentableId', 'commentableType') comments!: Comment[]
   }
 
   class Image extends Model {
@@ -117,7 +120,7 @@ describe('unit/model/Model_Relations', () => {
     @Attr() imageableType!: string
 
     @MorphTo(() => [User], 'imageableId', 'imageableType')
-      imageable!: User | null
+    imageable!: User | null
   }
 
   it('fills "has one" relation', () => {
@@ -264,5 +267,19 @@ describe('unit/model/Model_Relations', () => {
     expect(user.tags[1]).toBeInstanceOf(Tag)
     expect(user.tags[0].id).toBe(2)
     expect(user.tags[1].id).toBe(3)
+  })
+
+  it('fills "morphed by many" relation', () => {
+    const tagRepo = useRepo(Tag)
+
+    const user = tagRepo.make({
+      id: 1,
+      users: [{ id: 2 }, { id: 3 }],
+    })
+
+    expect(user.users[0]).toBeInstanceOf(User)
+    expect(user.users[1]).toBeInstanceOf(User)
+    expect(user.users[0].id).toBe(2)
+    expect(user.users[1].id).toBe(3)
   })
 })
